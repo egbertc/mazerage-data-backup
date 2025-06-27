@@ -1,0 +1,17 @@
+name: Build and push Docker image
+on:
+  workflow_dispatch:
+  push:
+    paths-ignore: 
+      - '.github/**'
+    branches:
+      - main
+jobs:
+  build_push:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: build
+      run: docker build --build-arg NPM_TOKEN=${{ secrets.NPM_TOKEN }} . --file Dockerfile -t registry.husqylabs.com/mazerage-data-backup:latest
+    - name: push
+      run: docker image push --all-tags registry.husqylabs.com/mazerage-data-backup
