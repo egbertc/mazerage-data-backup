@@ -1,0 +1,76 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: memgraph-backup-job
+  namespace: default
+spec:
+  schedule: "0 5 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: registry.husqylabs.com/mazerage-data-backup:latest
+              imagePullPolicy: Always
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  TIMESTAMP=$(date +%F-%H-%M-%S)
+                  HOSTPORT="${NEO4J_URI#bolt://}"
+                  HOST="${HOSTPORT%%:*}"
+                  PORT="${HOSTPORT##*:}"
+                  echo 'DUMP DATABASE;' \
+                    | mgconsole \
+                        --host "$HOST" \
+                        --port "$PORT" \
+                        --username "$NEO4J_USER" \
+                        --password "$NEO4J_PASS" \
+                        --output-format=cypherl \
+                    | gzip > /tmp/memgraph-$TIMESTAMP.cypherl.gz
+                  aws s3 cp \
+                    /tmp/memgraph-$TIMESTAMP.cypherl.gz \
+                    s3://$AWS_BUCKET/memgraph-backups/backup-$TIMESTAMP.cypherl.gz \
+                    --region $AWS_REGION
+              env:
+                - name: NEO4J_URI
+                  valueFrom:
+                    configMapKeyRef:
+                      name: mazerage-config
+                      key: NEO4J_URI
+                - name: NEO4J_USER
+                  valueFrom:
+                    configMapKeyRef:
+                      name: mazerage-config
+                      key: NEO4J_USER
+                - name: NEO4J_PASS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: mazerage-config
+                      key: NEO4J_PASS
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: AWS_BUCKET
+                  value: rage-data-backup
+                - name: AWS_REGION
+                  value: us-east-1
+              volumeMounts:
+                - name: aws-credentials
+                  mountPath: /root/.aws
+          volumes:
+            - name: aws-credentials
+              secret:
+                secretName: aws-credentials

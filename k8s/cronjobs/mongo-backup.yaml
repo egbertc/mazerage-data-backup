@@ -1,0 +1,77 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: data-backup-job
+  namespace: default
+spec:
+  schedule: "0 6 * * *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: registry.husqylabs.com/mazerage-data-backup:latest
+              imagePullPolicy: Always
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  TIMESTAMP=$(date +%F-%H-%M-%S)
+                  mongodump \
+                    --uri="$MONGO_URI" \
+                    -u "$MONGO_USER" \
+                    -p "$MONGO_PASS" \
+                    --authenticationDatabase "$MONGO_DB" \
+                    --out=/dump
+                  tar -czf /dump.tar.gz /dump
+                  aws s3 cp \
+                    /dump.tar.gz \
+                    s3://$AWS_BUCKET/mongodb-backups/backup-$TIMESTAMP.tar.gz \
+                    --region $AWS_REGION
+              env:
+                - name: MONGO_URI
+                  valueFrom:
+                    configMapKeyRef:
+                      name: mazerage-config
+                      key: MONGO_CONNECTION
+                - name: MONGO_USER
+                  valueFrom:
+                    configMapKeyRef:
+                      name: mazerage-config
+                      key: MONGO_USER
+                - name: MONGO_PASS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: mazerage-config
+                      key: MONGO_PASS
+                - name: MONGO_DB
+                  valueFrom:
+                    configMapKeyRef:
+                      name: mazerage-config
+                      key: MONGO_DB
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: AWS_BUCKET
+                  value: rage-data-backup
+                - name: AWS_REGION
+                  value: us-east-1
+              volumeMounts:
+                - name: aws-credentials
+                  mountPath: /root/.aws
+          volumes:
+            - name: aws-credentials
+              secret:
+                secretName: aws-credentials
