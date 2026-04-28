@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: data-backup-job
+  name: rage-mongo-backup-job
   namespace: default
 spec:
   schedule: "0 6 * * *"
@@ -17,7 +17,7 @@ spec:
               image: registry.husqylabs.com/mazerage-data-backup:latest
               imagePullPolicy: Always
               command:
-                - /bin/sh
+                - /bin/bash
                 - -c
                 - |
                   set -euo pipefail
